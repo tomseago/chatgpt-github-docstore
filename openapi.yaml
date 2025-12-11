@@ -1,0 +1,163 @@
+openapi: 3.1.0
+info:
+  title: DocStore API
+  version: 1.0.0
+servers:
+  - url: https://YOUR-WORKER-URL-HERE
+paths:
+  /docs:
+    get:
+      operationId: listDocs
+      summary: List documents within a directory
+      parameters:
+        - name: dir
+          in: query
+          required: false
+          description: Directory path relative to the docs root (e.g. "ftl")
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of items in the directory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocListItem'
+  /docs/{path}:
+    get:
+      operationId: getDoc
+      summary: Get a single document by path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Document path relative to the docs root (e.g. "ftl/canon.md")
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document contents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Doc'
+        "404":
+          description: Document not found
+    put:
+      operationId: upsertDoc
+      summary: Create or update a document by path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Document path relative to the docs root (e.g. "ftl/canon.md")
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertDocRequest'
+      responses:
+        "200":
+          description: Document created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertDocResponse'
+    delete:
+      operationId: deleteDoc
+      summary: Delete a document by path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Document path relative to the docs root (e.g. "ftl/canon.md")
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: Commit message to use for the delete
+      responses:
+        "200":
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  commit:
+                    type: object
+                    properties:
+                      sha:
+                        type: string
+                      message:
+                        type: string
+        "404":
+          description: Document not found
+
+components:
+  schemas:
+    DocListItem:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, dir]
+    Doc:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        sha:
+          type: string
+        content:
+          type: string
+          description: Raw document text (e.g. Markdown)
+    UpsertDocRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: Raw document content (Markdown or other text)
+        message:
+          type: string
+          description: Optional commit message
+    UpsertDocResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        sha:
+          type: string
+        commit:
+          type: object
+          properties:
+            sha:
+              type: string
+            message:
+              type: string

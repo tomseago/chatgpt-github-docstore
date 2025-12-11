@@ -1,0 +1,10 @@
+name = "docstore-middleware-worker"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# GitHub repo configuration
+GITHUB_OWNER = "your-github-username-or-org"
+GITHUB_REPO = "your-docstore-repo"
+GITHUB_BRANCH = "main"
+DOCS_BASE_DIR = "docs"
