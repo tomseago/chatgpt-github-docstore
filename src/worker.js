@@ -1,24 +1,44 @@
 const GITHUB_API_BASE = "https://api.github.com";
 
 // Base64 helpers that work in both Cloudflare Workers and Node (for tests)
-function toBase64(str) {
-  if (typeof btoa === "function") {
-    return btoa(str);
-  } else if (typeof Buffer !== "undefined") {
+export function toBase64(str) {
+  // Node.js path (used in tests or Node-like environments)
+  if (typeof Buffer !== "undefined") {
     return Buffer.from(str, "utf8").toString("base64");
-  } else {
-    throw new Error("No base64 encoder available for toBase64");
   }
+
+  // Browser / Workers path: use TextEncoder to get UTF-8 bytes, then btoa on binary string
+  if (typeof TextEncoder !== "undefined" && typeof btoa === "function") {
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(str);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  throw new Error("No base64 encoder available for toBase64");
 }
 
-function fromBase64(str) {
-  if (typeof atob === "function") {
-    return atob(str);
-  } else if (typeof Buffer !== "undefined") {
+export function fromBase64(str) {
+  // Node.js path
+  if (typeof Buffer !== "undefined") {
     return Buffer.from(str, "base64").toString("utf8");
-  } else {
-    throw new Error("No base64 decoder available for fromBase64");
   }
+
+  // Browser / Workers path: use atob to get binary string, then TextDecoder on UTF-8 bytes
+  if (typeof TextDecoder !== "undefined" && typeof atob === "function") {
+    const binary = atob(str);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const decoder = new TextDecoder("utf-8");
+    return decoder.decode(bytes);
+  }
+
+  throw new Error("No base64 decoder available for fromBase64");
 }
 
 export async function githubRequest(method, path, env, body) {

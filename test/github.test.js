@@ -1,5 +1,5 @@
 import assert from "assert";
-import { buildRepoPath, putFile, logicalPathFromGitPath } from "../src/worker.js";
+import { buildRepoPath, putFile, logicalPathFromGitPath, toBase64, fromBase64 } from "../src/worker.js";
 
 async function testBuildRepoPath() {
   const env = { DOCS_BASE_DIR: "docs" };
@@ -34,6 +34,14 @@ async function testLogicalPathFromGitPath() {
   // The trailing slash behavior is handled in the Worker mapping logic
   const logicalPath = logicalPathFromGitPath(env, "docs/ftl");
   assert.strictEqual(logicalPath, "ftl");
+}
+
+async function testBase64UnicodeRoundTrip() {
+  const original = "Emoji 😘 and 漢字";
+  const encoded = toBase64(original);
+  assert.ok(typeof encoded === "string" && encoded.length > 0, "Expected non-empty base64 string");
+  const decoded = fromBase64(encoded);
+  assert.strictEqual(decoded, original, "Expected decoded string to match original with emoji and CJK");
 }
 
 async function testPutFileCreatesOn404() {
@@ -96,6 +104,9 @@ async function testPutFileCreatesOn404() {
 
 async function run() {
   try {
+    await testBase64UnicodeRoundTrip();
+    console.log("✓ base64 Unicode round-trip tests passed");
+
     await testLogicalPathFromGitPath();
     console.log("✓ logicalPathFromGitPath tests passed");
 
