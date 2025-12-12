@@ -84,6 +84,7 @@ paths:
     put:
       operationId: upsertDoc
       summary: Create or update a document by path
+      x-openai-isConsequential: false
       parameters:
         - name: path
           in: path
@@ -107,6 +108,7 @@ paths:
     delete:
       operationId: deleteDoc
       summary: Delete a document by path
+      x-openai-isConsequential: false
       parameters:
         - name: path
           in: path
