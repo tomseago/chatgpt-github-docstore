@@ -73,6 +73,17 @@ export function buildRepoPath(env, docPath) {
   return `${base}/${cleaned}`;
 }
 
+export function logicalPathFromGitPath(env, gitPath) {
+  const base = normalizeBaseDir(env);
+  if (gitPath === base) {
+    return "";
+  }
+  if (gitPath.startsWith(base + "/")) {
+    return gitPath.substring(base.length + 1);
+  }
+  return gitPath;
+}
+
 export async function getFile(env, docPath) {
   const { GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = env;
   const repoPath = buildRepoPath(env, docPath);
@@ -156,8 +167,8 @@ function badRequest(message = "Bad request") {
 
 function checkAuth(request, env) {
   const path = new URL(request.url).pathname;
-  // Allow unauthenticated health check on root path
-  if (path === "/" && request.method === "GET") {
+  // Allow unauthenticated health check only on /health path
+  if (path === "/health" && request.method === "GET") {
     return { ok: true };
   }
 
@@ -185,23 +196,23 @@ export default {
       const { pathname, searchParams } = url;
 
       // Health check (auth already allowed above)
-      if (pathname === "/" && request.method === "GET") {
+      if (pathname === "/health" && request.method === "GET") {
         return jsonResponse({ status: "ok" });
       }
 
-      if (pathname === "/docs" && request.method === "GET") {
-        const dir = searchParams.get("dir") || "";
-        const items = await listDocs(env, dir);
+      if (pathname === "/" && request.method === "GET") {
+        const items = await listDocs(env, "");
         const mapped = items.map(item => ({
           name: item.name,
-          path: item.path,
+          path: logicalPathFromGitPath(env, item.path),
           type: item.type,
         }));
         return jsonResponse({ items: mapped });
       }
 
-      if (pathname.startsWith("/docs/")) {
-        const docPath = decodeURIComponent(pathname.substring("/docs/".length));
+      // All other paths are treated as document paths
+      if (pathname !== "/health") {
+        const docPath = pathname.startsWith("/") ? pathname.substring(1) : pathname;
 
         if (request.method === "GET") {
           try {
@@ -211,7 +222,7 @@ export default {
             }
             const content = fromBase64(file.content);
             return jsonResponse({
-              path: file.path,
+              path: logicalPathFromGitPath(env, file.path),
               name: file.name,
               sha: file.sha,
               content
@@ -220,7 +231,7 @@ export default {
             if (err.status === 404) {
               return notFound("Document not found");
             }
-            console.error("GET /docs error", err);
+            console.error("GET document error", err);
             return jsonResponse({ error: err.message || "Internal error" }, 500);
           }
         }
@@ -249,7 +260,7 @@ export default {
               }
             }, 200);
           } catch (err) {
-            console.error("PUT /docs error", err);
+            console.error("PUT document error", err);
             if (err.status === 404) {
               return notFound("Repository or branch not found");
             }
@@ -276,7 +287,7 @@ export default {
               }
             });
           } catch (err) {
-            console.error("DELETE /docs error", err);
+            console.error("DELETE document error", err);
             if (err.status === 404) {
               return notFound("Document not found");
             }
