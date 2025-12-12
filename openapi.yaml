@@ -5,20 +5,13 @@ info:
 servers:
   - url: https://YOUR-WORKER-URL-HERE
 paths:
-  /docs:
+  /:
     get:
       operationId: listDocs
-      summary: List documents within a directory
-      parameters:
-        - name: dir
-          in: query
-          required: false
-          description: Directory path relative to the docs root (e.g. "ftl")
-          schema:
-            type: string
+      summary: List documents at the root of the docstore
       responses:
         "200":
-          description: List of items in the directory
+          description: List of items at the docstore root
           content:
             application/json:
               schema:
@@ -28,15 +21,30 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/DocListItem'
-  /docs/{docpath}:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Health check for the docstore worker
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    description: Health status string, e.g. "ok"
+  /{path}:
     get:
       operationId: getDoc
       summary: Get a single document by path
       parameters:
-        - name: docpath
+        - name: path
           in: path
           required: true
-          description: Document path relative to the docs root (e.g. "ftl/canon.md")
+          description: Document path relative to the docstore root (e.g. "ftl/canon.md")
           schema:
             type: string
       responses:
@@ -52,10 +60,10 @@ paths:
       operationId: upsertDoc
       summary: Create or update a document by path
       parameters:
-        - name: docpath
+        - name: path
           in: path
           required: true
-          description: Document path relative to the docs root (e.g. "ftl/canon.md")
+          description: Document path relative to the docstore root (e.g. "ftl/canon.md")
           schema:
             type: string
       requestBody:
@@ -75,10 +83,10 @@ paths:
       operationId: deleteDoc
       summary: Delete a document by path
       parameters:
-        - name: docpath
+        - name: path
           in: path
           required: true
-          description: Document path relative to the docs root (e.g. "ftl/canon.md")
+          description: Document path relative to the docstore root (e.g. "ftl/canon.md")
           schema:
             type: string
       requestBody:

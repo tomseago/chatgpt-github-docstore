@@ -1,285 +1,408 @@
-import { normalizeBaseDir } from "./utils.js";
+# DocStore Middleware – Cloudflare Worker + GitHub
 
-async function checkAuth(request, env) {
-  const { pathname, method } = new URL(request.url);
+This repository contains a Cloudflare Worker that exposes a small JSON API for a **document store** backed by a **GitHub repository**. It is designed to act as middleware between tools (for example, a ChatGPT Custom GPT Action) and a canonical document repository stored in Git.
 
-  // Allow unauthenticated access only for health check at /health GET
-  if (pathname === "/health" && method === "GET") {
-    return true;
-  }
+The Worker offers a stable HTTP surface for **create / read / update / delete (CRUD)** operations on text documents (typically Markdown) while persisting every change as a real Git commit in a GitHub repo. Authentication is enforced with a simple **Bearer token** so only authorized clients can use the docstore.
 
-  // All other routes require a valid Bearer token
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return false;
-  }
-  const token = authHeader.substring("Bearer ".length);
-  return token === env.DOCSTORE_API_TOKEN;
+---
+
+## Goals and Design Rationale
+
+The Worker is intended to solve the following problems:
+
+1. **Persistent, canonical storage**  
+   LLM interactions often generate or edit documents (worldbuilding canon, outlines, notes, specs). Storing these only inside a chat or UI-specific file store is fragile. Instead, this Worker treats a GitHub repository as the **source of truth**, with normal Git history, branches, and tooling.
+
+2. **Simple, tool-friendly HTTP API**  
+   The Worker exposes a minimal, action-friendly API with just a few endpoints under the Worker’s document API (/, /{path}). This keeps integration easy for tools like ChatGPT Actions, scripts, or other services.
+
+3. **Separation of concerns**  
+   - Cloudflare Worker handles HTTP, simple auth, and translation of logical doc paths to GitHub API calls.  
+   - GitHub handles persistence, history, access control, and backup.  
+   - The client (e.g., LLM) focuses on content generation and editing.
+
+4. **Human-friendly document structure**  
+   Documents are regular files under a configurable base directory in the repo (e.g. `docs/ftl/canon.md`, `docs/course/outline.md`). You can browse and edit them with any Git tool.
+
+5. **API-level access controls via Bearer token**  
+   The Worker enforces a simple **Bearer token** (`Authorization: Bearer <token>`) stored as a Cloudflare secret. This prevents casual or accidental use of the docstore API by unauthorized clients.
+
+---
+
+## High-Level Architecture
+
+- **Client** (e.g. ChatGPT Custom GPT, CLI script, other service)  
+  Calls the Worker’s document API (/, /{path}) with JSON payloads and an Authorization header.
+
+- **Cloudflare Worker (this repo)**  
+  - Validates the Bearer token (`DOCSTORE_API_TOKEN` secret).  
+  - Maps logical document paths to file paths in a GitHub repo under a base directory (e.g. `docs/`).  
+  - Uses the GitHub REST API to:
+    - Read files (`GET /repos/{owner}/{repo}/contents/...`)  
+    - Create or update files via base64 content (`PUT /repos/{owner}/{repo}/contents/...`)  
+    - Delete files (`DELETE /repos/{owner}/{repo}/contents/...`)  
+    - List directory contents (`GET /repos/{owner}/{repo}/contents/...` when it is a directory)
+
+- **GitHub Repository (backing store)**  
+  - Holds all documents as regular files.  
+  - Tracks changes through commits on a branch (e.g. `main`).  
+  - Can be used directly by humans (IDE, Git CLI, GitHub web UI).
+
+---
+
+## API Summary
+
+Base URL will look like:
+
+```text
+https://YOUR-WORKER-NAME.YOUR-ACCOUNT.workers.dev
+```
+
+All endpoints except `/health` require:
+
+```http
+Authorization: Bearer DOCSTORE_API_TOKEN
+```
+
+### Health check
+
+```http
+GET /health
+```
+
+Returns a simple JSON payload; does **not** require auth and is intended as a basic liveness check.
+
+### List documents in a directory
+
+```http
+GET /
+```
+
+- Lists names and paths (files and subdirectories) under the root docs directory.
+
+```http
+GET /ftl?dir=true
+```
+
+- Optionally, can list contents of a subdirectory by specifying the path and query parameter.
+
+### Get a document
+
+```http
+GET /ftl/canon.md
+```
+
+Returns JSON including the raw `content` field (e.g. Markdown).
+
+### Create or update (upsert) a document
+
+```http
+PUT /ftl/canon.md
+Content-Type: application/json
+
+{
+  "content": "# FTL Canon\n\nUpdated content...",
+  "message": "Update FTL canon after adding station list"
 }
+```
 
-function logicalPathFromGitPath(env, gitPath) {
-  const base = normalizeBaseDir(env);
-  if (gitPath === base) {
-    return "";
-  }
-  if (gitPath.startsWith(base + "/")) {
-    return gitPath.substring(base.length + 1);
-  }
-  return gitPath;
+- If the file does not exist, it is created.
+- If the file exists, it is updated.
+- A commit is created on the configured branch in GitHub.
+
+### Delete a document
+
+```http
+DELETE /ftl/canon.md
+Content-Type: application/json
+
+{
+  "message": "Remove obsolete FTL canon draft"
 }
+```
 
-async function listDocs(env, dir) {
-  const baseDir = normalizeBaseDir(env);
-  const path = dir ? `${baseDir}/${dir}` : baseDir;
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`;
+Removes the file from the GitHub repo and creates a commit with the specified message.
 
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `token ${env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-    },
-  });
+---
 
-  if (!resp.ok) {
-    throw new Error(`GitHub API error: ${resp.status}`);
-  }
+## Authentication Model
 
-  const items = await resp.json();
+The Worker enforces a simple shared-secret Bearer token:
 
-  if (!Array.isArray(items)) {
-    throw new Error("Expected directory listing to be an array");
-  }
+- Cloudflare secret: `DOCSTORE_API_TOKEN`
+- Clients must send:
+  - `Authorization: Bearer <DOCSTORE_API_TOKEN>`
 
-  return items.map((item) => ({
-    name: item.name,
-    path: logicalPathFromGitPath(env, item.path),
-    type: item.type,
-  }));
-}
+All endpoints except `/health` require auth and requests without a valid token receive `401 Unauthorized`.  
+The health check (`GET /health`) remains unauthenticated for ease of monitoring.
 
-async function getDoc(env, docPath) {
-  const baseDir = normalizeBaseDir(env);
-  const path = `${baseDir}/${docPath}`;
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`;
+---
 
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `token ${env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-    },
-  });
+## Repository Layout
 
-  if (resp.status === 404) {
-    return null;
-  }
+This middleware repo has the following structure:
 
-  if (!resp.ok) {
-    throw new Error(`GitHub API error: ${resp.status}`);
-  }
+```text
+.
+├── README.md
+├── wrangler.toml
+├── src
+│   └── worker.js
+├── test
+│   └── github.test.js
+├── scripts
+│   └── call-docstore.sh
+├── openapi.yaml
+├── package.json
+└── .gitignore
+```
 
-  const file = await resp.json();
-  const content = atob(file.content.replace(/\n/g, ""));
+- `src/worker.js` – Cloudflare Worker implementation.  
+- `wrangler.toml` – Worker configuration (entrypoint, vars).  
+- `scripts/call-docstore.sh` – Convenience script to call the deployed Worker via curl.  
+- `test/github.test.js` – Node-based unit test that exercises the GitHub integration logic.  
+- `openapi.yaml` – OpenAPI schema describing the document API surface (suitable for use as a ChatGPT Action definition).  
+- `package.json` – Minimal Node configuration to run tests.  
+- `.gitignore` – Standard ignore rules.
 
-  return {
-    path: logicalPathFromGitPath(env, file.path),
-    content,
-    sha: file.sha,
-  };
-}
+---
 
-async function putDoc(env, docPath, content, message, sha = null) {
-  const baseDir = normalizeBaseDir(env);
-  const path = `${baseDir}/${docPath}`;
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}`;
+## GitHub Integration Details
 
-  const body = {
-    message,
-    content: btoa(content),
-    branch: env.GITHUB_BRANCH,
-  };
-  if (sha) {
-    body.sha = sha;
-  }
+The Worker uses the GitHub REST API v3:
 
-  const resp = await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: `token ${env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+- **Base URL**: `https://api.github.com`
+- Each document is mapped to a file path inside the repo:
+  - Logical doc path: `ftl/canon.md`
+  - Repo path: `DOCS_BASE_DIR/ftl/canon.md` (e.g. `docs/ftl/canon.md`)
 
-  if (!resp.ok) {
-    throw new Error(`GitHub API error: ${resp.status}`);
-  }
+Required environment configuration (via `wrangler.toml` and secrets):
 
-  return await resp.json();
-}
+- `GITHUB_OWNER` – Username or org owning the repo.  
+- `GITHUB_REPO` – Repository name (e.g. `docstore`).  
+- `GITHUB_BRANCH` – Branch name to commit to (e.g. `main`).  
+- `DOCS_BASE_DIR` – Base directory inside the repo for documents (e.g. `docs`).  
+- `GITHUB_TOKEN` – Secret GitHub Personal Access Token with `repo` (read/write) scope.  
+- `DOCSTORE_API_TOKEN` – Secret Bearer token for client access.
 
-async function deleteDoc(env, docPath, message, sha) {
-  const baseDir = normalizeBaseDir(env);
-  const path = `${baseDir}/${docPath}`;
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}`;
+The Worker will:
 
-  const body = {
-    message,
-    sha,
-    branch: env.GITHUB_BRANCH,
-  };
+- Use `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}` to list or fetch files.  
+- Use `PUT /repos/{owner}/{repo}/contents/{path}` to create or update files.  
+- Use `DELETE /repos/{owner}/{repo}/contents/{path}` to delete files.
 
-  const resp = await fetch(url, {
-    method: "DELETE",
-    headers: {
-      Authorization: `token ${env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+All file content is transmitted as base64-encoded text, per GitHub API requirements.
 
-  if (!resp.ok) {
-    throw new Error(`GitHub API error: ${resp.status}`);
-  }
+---
 
-  return await resp.json();
-}
+## Setting Up a New Worker Using This Repo
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const { pathname, method } = url;
+This section assumes:
 
-    // Check authentication
-    const authorized = await checkAuth(request, env);
-    if (!authorized) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
+- You want this repo to be the “middleware” between tools (e.g. ChatGPT) and GitHub.  
+- You will deploy the Worker, then separately create the GitHub docstore repo it will talk to.
 
-    // Health check at /health
-    if (pathname === "/health" && method === "GET") {
-      return new Response(
-        JSON.stringify({ status: "ok" }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
+### 1. Create a new GitHub repository for the middleware
 
-    // List documents at root "/"
-    if (pathname === "/" && method === "GET") {
-      try {
-        const docs = await listDocs(env, "");
-        return new Response(
-          JSON.stringify(docs),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      } catch (e) {
-        return new Response(
-          JSON.stringify({ error: e.message }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
-      }
-    }
+On GitHub:
 
-    // All other paths treated as document paths
-    if (pathname !== "/health") {
-      const docPath = pathname.startsWith("/") ? pathname.slice(1) : pathname;
+1. Create a new repo, e.g. `docstore-middleware`.  
+2. Clone it locally.
 
-      if (method === "GET") {
-        try {
-          const doc = await getDoc(env, docPath);
-          if (!doc) {
-            return new Response(
-              JSON.stringify({ error: "Not found" }),
-              { status: 404, headers: { "Content-Type": "application/json" } }
-            );
-          }
-          return new Response(
-            JSON.stringify(doc),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-          );
-        } catch (e) {
-          return new Response(
-            JSON.stringify({ error: e.message }),
-            { status: 500, headers: { "Content-Type": "application/json" } }
-          );
-        }
-      }
+```bash
+git clone git@github.com:YOUR-GITHUB-USER/docstore-middleware.git
+cd docstore-middleware
+```
 
-      if (method === "PUT") {
-        try {
-          const data = await request.json();
-          if (!data.content || !data.message) {
-            return new Response(
-              JSON.stringify({ error: "Missing content or message" }),
-              { status: 400, headers: { "Content-Type": "application/json" } }
-            );
-          }
-          // Check if file exists to get sha
-          let sha = null;
-          try {
-            const existing = await getDoc(env, docPath);
-            if (existing) {
-              sha = existing.sha;
-            }
-          } catch {}
+3. Unzip the contents provided for this project into the repo directory and commit them:
 
-          const result = await putDoc(env, docPath, data.content, data.message, sha);
-          return new Response(
-            JSON.stringify({ commit: result.commit }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-          );
-        } catch (e) {
-          return new Response(
-            JSON.stringify({ error: e.message }),
-            { status: 500, headers: { "Content-Type": "application/json" } }
-          );
-        }
-      }
+```bash
+# assuming docstore-middleware.zip has been downloaded
+unzip /path/to/docstore-middleware.zip -d .
+git add .
+git commit -m "Initial commit: docstore middleware worker"
+git push origin main
+```
 
-      if (method === "DELETE") {
-        try {
-          const data = await request.json();
-          if (!data.message) {
-            return new Response(
-              JSON.stringify({ error: "Missing message" }),
-              { status: 400, headers: { "Content-Type": "application/json" } }
-            );
-          }
-          // Need sha of existing file to delete
-          const existing = await getDoc(env, docPath);
-          if (!existing) {
-            return new Response(
-              JSON.stringify({ error: "Not found" }),
-              { status: 404, headers: { "Content-Type": "application/json" } }
-            );
-          }
-          const result = await deleteDoc(env, docPath, data.message, existing.sha);
-          return new Response(
-            JSON.stringify({ commit: result.commit }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-          );
-        } catch (e) {
-          return new Response(
-            JSON.stringify({ error: e.message }),
-            { status: 500, headers: { "Content-Type": "application/json" } }
-          );
-        }
-      }
+### 2. Install Wrangler (if not already installed)
 
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        { status: 405, headers: { "Content-Type": "application/json" } }
-      );
-    }
+```bash
+npm install -g wrangler
+# or
+pnpm add -g wrangler
+```
 
-    // If no route matched
-    return new Response(
-      JSON.stringify({ error: "Not found" }),
-      { status: 404, headers: { "Content-Type": "application/json" } }
-    );
-  },
-};
+Login:
+
+```bash
+wrangler login
+```
+
+### 3. Configure `wrangler.toml`
+
+Open `wrangler.toml` and set:
+
+- `name` – A unique Worker name.  
+- Optionally adjust `compatibility_date`.  
+- Fill `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, and `DOCS_BASE_DIR` under `[vars]`.
+
+### 4. Create the backing docstore repo
+
+Create the repository that will store the actual documents, e.g. `docstore` or `arcadia-docs`, and ensure it has at least one commit (e.g., add a `README.md`). Note the:
+
+- Owner (user/org)  
+- Repo name  
+- Default branch (e.g. `main`)  
+
+These must match your `wrangler.toml` vars.
+
+### 5. Create a GitHub Personal Access Token
+
+1. Go to GitHub → Settings → Developer settings → Personal access tokens.  
+2. Create a classic PAT with at least:
+   - `repo` scope for the target repo (or your whole account/org if you prefer).  
+3. Copy the token.
+
+Set it as a secret in your Worker:
+
+```bash
+wrangler secret put GITHUB_TOKEN
+# paste the token when prompted
+```
+
+### 6. Set the DocStore API Bearer Token
+
+Choose a random secret token for clients to use (for example, a UUID). Then:
+
+```bash
+wrangler secret put DOCSTORE_API_TOKEN
+# paste your chosen bearer token
+```
+
+Clients must send:
+
+```http
+Authorization: Bearer YOUR-TOKEN-HERE
+```
+
+---
+
+## Deploying the Worker
+
+From the repo directory:
+
+```bash
+wrangler deploy
+```
+
+Wrangler will output the Worker’s URL, typically:
+
+```text
+https://YOUR-WORKER-NAME.YOUR-ACCOUNT.workers.dev
+```
+
+You can now use that URL with the `scripts/call-docstore.sh` script or any HTTP client.
+
+---
+
+## Using the Test Script (`scripts/call-docstore.sh`)
+
+The `call-docstore.sh` script is a small helper to exercise the Worker after deployment.
+
+### 1. Export environment variables
+
+```bash
+export DOCSTORE_WORKER_URL="https://YOUR-WORKER-NAME.YOUR-ACCOUNT.workers.dev"
+export DOCSTORE_API_TOKEN="YOUR-BEARER-TOKEN"
+```
+
+### 2. Example calls
+
+- **List root docs directory:**
+
+  ```bash
+  ./scripts/call-docstore.sh GET "/"
+  ```
+
+- **Create or update a document:**
+
+  ```bash
+  ./scripts/call-docstore.sh PUT "/ftl/canon.md"         '{"content":"# FTL Canon\n\nHello from the docstore.","message":"Create initial canon"}'
+  ```
+
+- **Get that document:**
+
+  ```bash
+  ./scripts/call-docstore.sh GET "/ftl/canon.md"
+  ```
+
+- **Delete that document:**
+
+  ```bash
+  ./scripts/call-docstore.sh DELETE "/ftl/canon.md"         '{"message":"Remove test doc"}'
+  ```
+
+---
+
+## Running Unit Tests (Node)
+
+This repo includes a minimal Node-based unit test that exercises the GitHub-related logic in `src/worker.js` (without actually calling GitHub). It does this by:
+
+- Importing helper functions from `src/worker.js`.  
+- Stubbing `global.fetch` to simulate GitHub API responses.  
+- Verifying that:
+  - Paths are constructed correctly.  
+  - Base64 encoding behaves as expected.  
+  - The correct HTTP method and payload are used.
+
+### 1. Install Node dependencies
+
+There are no external libraries, but you should run:
+
+```bash
+npm install
+```
+
+(This will create `package-lock.json` if it does not exist.)
+
+### 2. Run the tests
+
+```bash
+npm test
+```
+
+On success, you should see console output indicating all tests passed. The script exits with a non-zero status if any assertion fails.
+
+---
+
+## Using This Worker as Middleware for a ChatGPT Custom GPT Action
+
+To use this Worker as a backend for a ChatGPT Custom GPT:
+
+1. Deploy the Worker and confirm it works via the test script.  
+2. Use the `openapi.yaml` file in this repo as the API schema when configuring a Custom GPT “Action”.  
+3. Set the server URL in the Action configuration to your Worker’s URL.  
+4. In the GPT’s instructions, encourage it to:
+   - Use logical paths like `ftl/canon.md`, `course/outline.md`, etc.  
+   - Treat `content` fields as Markdown.  
+   - Provide meaningful commit messages for changes.
+
+Once configured, the GPT can:
+
+- Create and update rich text documents in the GitHub-backed docstore.  
+- Retrieve documents later to modify or reference them.  
+- Use the docstore across multiple sessions and workflows.
+
+---
+
+## Notes and Future Extensions
+
+Possible enhancements:
+
+- Version listing (exposing commit history per document).  
+- Branch selection per request (instead of a fixed branch).  
+- Soft-deletes or archiving instead of hard deletes.  
+- Additional metadata files or a manifest to track doc relationships.  
+- Support for binary assets (currently focused on text).
+
+For now, this repository provides a focused, pragmatic starting point: a small, auditable middleware layer that gives tools like ChatGPT stable, Git-backed document persistence via a simple HTTP API.

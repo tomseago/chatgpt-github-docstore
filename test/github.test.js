@@ -1,5 +1,5 @@
 import assert from "assert";
-import { buildRepoPath, putFile } from "../src/worker.js";
+import { buildRepoPath, putFile, logicalPathFromGitPath } from "../src/worker.js";
 
 async function testBuildRepoPath() {
   const env = { DOCS_BASE_DIR: "docs" };
@@ -10,6 +10,25 @@ async function testBuildRepoPath() {
 
   const env2 = { DOCS_BASE_DIR: "docs/" };
   assert.strictEqual(buildRepoPath(env2, "notes/test.md"), "docs/notes/test.md");
+}
+
+async function testLogicalPathFromGitPath() {
+  const env = { DOCS_BASE_DIR: "docs" };
+
+  // Exact base dir should map to empty logical path
+  assert.strictEqual(logicalPathFromGitPath(env, "docs"), "");
+
+  // Paths under the base dir should have the prefix stripped
+  assert.strictEqual(logicalPathFromGitPath(env, "docs/ftl/canon.md"), "ftl/canon.md");
+  assert.strictEqual(logicalPathFromGitPath(env, "docs/notes"), "notes");
+  assert.strictEqual(logicalPathFromGitPath(env, "docs/notes/test.md"), "notes/test.md");
+
+  // Paths outside the base dir should be returned unchanged
+  assert.strictEqual(logicalPathFromGitPath(env, "other/thing.md"), "other/thing.md");
+
+  const env2 = { DOCS_BASE_DIR: "docs/" };
+  // Trailing slash on DOCS_BASE_DIR should behave the same logically
+  assert.strictEqual(logicalPathFromGitPath(env2, "docs/ftl/canon.md"), "ftl/canon.md");
 }
 
 async function testPutFileCreatesOn404() {
@@ -72,6 +91,9 @@ async function testPutFileCreatesOn404() {
 
 async function run() {
   try {
+    await testLogicalPathFromGitPath();
+    console.log("✓ logicalPathFromGitPath tests passed");
+
     await testBuildRepoPath();
     console.log("✓ buildRepoPath tests passed");
 
