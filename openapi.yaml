@@ -28,12 +28,12 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/DocListItem'
-  /docs/{path}:
+  /docs/{docpath}:
     get:
       operationId: getDoc
       summary: Get a single document by path
       parameters:
-        - name: path
+        - name: docpath
           in: path
           required: true
           description: Document path relative to the docs root (e.g. "ftl/canon.md")
@@ -52,7 +52,7 @@ paths:
       operationId: upsertDoc
       summary: Create or update a document by path
       parameters:
-        - name: path
+        - name: docpath
           in: path
           required: true
           description: Document path relative to the docs root (e.g. "ftl/canon.md")
@@ -75,7 +75,7 @@ paths:
       operationId: deleteDoc
       summary: Delete a document by path
       parameters:
-        - name: path
+        - name: docpath
           in: path
           required: true
           description: Document path relative to the docs root (e.g. "ftl/canon.md")
