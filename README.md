@@ -78,13 +78,13 @@ Returns a simple JSON payload; does **not** require auth and is intended as a ba
 GET /
 ```
 
-- Lists names and paths (files and subdirectories) under the root docs directory.
+- Lists names and paths (files and subdirectories) under the root docs directory. Directory entries in the response will have a `type` of `"dir"` and their `path` will end with a trailing slash (for example, `"ftl/"`).
 
 ```http
-GET /ftl?dir=true
+GET /ftl/
 ```
 
-- Optionally, can list contents of a subdirectory by specifying the path and query parameter.
+- Lists the contents of the `ftl` directory. As with the root listing, directory entries will be reported with trailing slashes in `path` and `type: "dir"`.
 
 ### Get a document
 
@@ -322,6 +322,12 @@ export DOCSTORE_API_TOKEN="YOUR-BEARER-TOKEN"
 
   ```bash
   ./scripts/call-docstore.sh GET "/"
+  ```
+
+- **List a subdirectory (e.g. `ftl`):**
+
+  ```bash
+  ./scripts/call-docstore.sh GET "/ftl/"
   ```
 
 - **Create or update a document:**

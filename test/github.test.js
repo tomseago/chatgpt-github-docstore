@@ -29,6 +29,11 @@ async function testLogicalPathFromGitPath() {
   const env2 = { DOCS_BASE_DIR: "docs/" };
   // Trailing slash on DOCS_BASE_DIR should behave the same logically
   assert.strictEqual(logicalPathFromGitPath(env2, "docs/ftl/canon.md"), "ftl/canon.md");
+
+  // Additional check: logicalPathFromGitPath does not add trailing slash itself
+  // The trailing slash behavior is handled in the Worker mapping logic
+  const logicalPath = logicalPathFromGitPath(env, "docs/ftl");
+  assert.strictEqual(logicalPath, "ftl");
 }
 
 async function testPutFileCreatesOn404() {

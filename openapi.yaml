@@ -36,6 +36,31 @@ paths:
                   status:
                     type: string
                     description: Health status string, e.g. "ok"
+  /{path}/:
+    get:
+      operationId: listDocsInDirectory
+      summary: List documents within a directory by path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Directory path relative to the docstore root (e.g. "ftl" for "/ftl/")
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of items in the directory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocListItem'
+        "404":
+          description: Directory not found
   /{path}:
     get:
       operationId: getDoc

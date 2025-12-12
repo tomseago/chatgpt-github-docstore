@@ -202,16 +202,51 @@ export default {
 
       if (pathname === "/" && request.method === "GET") {
         const items = await listDocs(env, "");
-        const mapped = items.map(item => ({
-          name: item.name,
-          path: logicalPathFromGitPath(env, item.path),
-          type: item.type,
-        }));
+        const mapped = items.map(item => {
+          const logicalPath = logicalPathFromGitPath(env, item.path);
+          const path =
+            item.type === "dir"
+              ? (logicalPath === "" ? "" : logicalPath + "/")
+              : logicalPath;
+          return {
+            name: item.name,
+            path,
+            type: item.type,
+          };
+        });
         return jsonResponse({ items: mapped });
       }
 
-      // All other paths are treated as document paths
+      // All other paths are treated as document or directory paths
       if (pathname !== "/health") {
+        // Directory listing when path ends with a trailing slash (e.g., "/ftl/")
+        if (request.method === "GET" && pathname.endsWith("/")) {
+          const dirPath = pathname === "/" ? "" : pathname.slice(1, -1); // strip leading and trailing "/"
+          try {
+            const items = await listDocs(env, dirPath);
+            const mapped = items.map(item => {
+              const logicalPath = logicalPathFromGitPath(env, item.path);
+              const path =
+                item.type === "dir"
+                  ? (logicalPath === "" ? "" : logicalPath + "/")
+                  : logicalPath;
+              return {
+                name: item.name,
+                path,
+                type: item.type,
+              };
+            });
+            return jsonResponse({ items: mapped });
+          } catch (err) {
+            if (err.status === 404) {
+              return notFound("Directory not found");
+            }
+            console.error("GET directory error", err);
+            return jsonResponse({ error: err.message || "Internal error" }, 500);
+          }
+        }
+
+        // File operations when there is no trailing slash
         const docPath = pathname.startsWith("/") ? pathname.substring(1) : pathname;
 
         if (request.method === "GET") {
