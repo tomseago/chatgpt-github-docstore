@@ -7,9 +7,14 @@ async function testBuildRepoPath() {
   assert.strictEqual(buildRepoPath(env, "/ftl/canon.md"), "docs/ftl/canon.md");
   assert.strictEqual(buildRepoPath(env, ""), "docs");
   assert.strictEqual(buildRepoPath(env, "/"), "docs");
+  // Paths already containing the base dir should not be double-prefixed
+  assert.strictEqual(buildRepoPath(env, "docs/ftl/canon.md"), "docs/ftl/canon.md");
+  assert.strictEqual(buildRepoPath(env, "/docs/ftl/canon.md"), "docs/ftl/canon.md");
+  assert.strictEqual(buildRepoPath(env, "docs"), "docs");
 
   const env2 = { DOCS_BASE_DIR: "docs/" };
   assert.strictEqual(buildRepoPath(env2, "notes/test.md"), "docs/notes/test.md");
+  assert.strictEqual(buildRepoPath(env2, "docs/notes/test.md"), "docs/notes/test.md");
 }
 
 async function testLogicalPathFromGitPath() {

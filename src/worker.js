@@ -90,6 +90,12 @@ export function buildRepoPath(env, docPath) {
     return base;
   }
   const cleaned = docPath.replace(/^\/+/, "");
+  if (cleaned === base) {
+    return base;
+  }
+  if (cleaned.startsWith(base + "/")) {
+    return cleaned;
+  }
   return `${base}/${cleaned}`;
 }
 
@@ -204,6 +210,18 @@ function checkAuth(request, env) {
   return { ok: true };
 }
 
+function errorResponse(err, fallbackStatus = 500) {
+  const status = err.status || fallbackStatus;
+  const payload = {
+    error: err.message || "Internal error",
+    status,
+  };
+  if (err.githubBody) {
+    payload.githubBody = err.githubBody;
+  }
+  return jsonResponse(payload, status);
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -287,7 +305,7 @@ export default {
               return notFound("Document not found");
             }
             console.error("GET document error", err);
-            return jsonResponse({ error: err.message || "Internal error" }, 500);
+            return errorResponse(err);
           }
         }
 
@@ -319,7 +337,7 @@ export default {
             if (err.status === 404) {
               return notFound("Repository or branch not found");
             }
-            return jsonResponse({ error: err.message || "Internal error" }, 500);
+            return errorResponse(err);
           }
         }
 
@@ -346,7 +364,7 @@ export default {
             if (err.status === 404) {
               return notFound("Document not found");
             }
-            return jsonResponse({ error: err.message || "Internal error" }, 500);
+            return errorResponse(err);
           }
         }
 
@@ -356,7 +374,7 @@ export default {
       return notFound();
     } catch (err) {
       console.error("Top-level error", err);
-      return jsonResponse({ error: "Unexpected error", detail: err.message || String(err) }, 500);
+      return errorResponse(err);
     }
   }
 };
