@@ -1,5 +1,5 @@
 import assert from "assert";
-import { buildRepoPath, putFile, logicalPathFromGitPath, toBase64, fromBase64 } from "../src/worker.js";
+import worker, { buildRepoPath, putFile, logicalPathFromGitPath, toBase64, fromBase64 } from "../src/worker.js";
 
 async function testBuildRepoPath() {
   const env = { DOCS_BASE_DIR: "docs" };
@@ -107,6 +107,65 @@ async function testPutFileCreatesOn404() {
   assert.ok(typeof body.content === "string" && body.content.length > 0, "Expected base64 content string");
 }
 
+async function testWorkerPutResponsePathNormalized() {
+  const env = {
+    GITHUB_OWNER: "owner",
+    GITHUB_REPO: "repo",
+    GITHUB_BRANCH: "main",
+    DOCS_BASE_DIR: "docs",
+    DOCSTORE_API_TOKEN: "api-token",
+    GITHUB_TOKEN: "fake-token"
+  };
+
+  global.fetch = async (url, init) => {
+    const u = new URL(url);
+
+    if (init.method === "GET" && u.pathname.includes("/contents/")) {
+      return {
+        ok: false,
+        status: 404,
+        text: async () => JSON.stringify({ message: "Not Found" })
+      };
+    }
+
+    if (init.method === "PUT" && u.pathname.includes("/contents/")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          content: { path: "docs/test.md", name: "test.md", sha: "sha123" },
+          commit: { sha: "commitsha", message: "Create docs/test.md" }
+        })
+      };
+    }
+
+    return {
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ message: "Unexpected call in test" })
+    };
+  };
+
+  const body = { content: "Hello world", message: "Create test.md" };
+  const req = new Request("https://example.com/test.md", {
+    method: "PUT",
+    headers: {
+      "Authorization": "Bearer api-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const res = await worker.fetch(req, env);
+  assert.strictEqual(res.status, 200);
+  const json = await res.json();
+
+  // Ensure paths returned to the client are logical (no base dir prefix)
+  assert.strictEqual(json.path, "test.md");
+  assert.strictEqual(json.name, "test.md");
+  assert.ok(json.commit && json.commit.sha, "Expected commit info in response");
+}
+
 async function run() {
   try {
     await testBase64UnicodeRoundTrip();
@@ -120,6 +179,9 @@ async function run() {
 
     await testPutFileCreatesOn404();
     console.log("✓ putFile create-on-404 tests passed");
+
+    await testWorkerPutResponsePathNormalized();
+    console.log("✓ worker PUT response path normalization tests passed");
 
     console.log("All tests passed");
     process.exit(0);

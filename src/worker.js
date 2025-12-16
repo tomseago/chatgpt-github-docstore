@@ -324,7 +324,7 @@ export default {
           try {
             const result = await putFile(env, docPath, body.content, commitMessage);
             return jsonResponse({
-              path: result.content.path,
+              path: logicalPathFromGitPath(env, result.content.path),
               name: result.content.name,
               sha: result.content.sha,
               commit: {
