@@ -166,6 +166,93 @@ async function testWorkerPutResponsePathNormalized() {
   assert.ok(json.commit && json.commit.sha, "Expected commit info in response");
 }
 
+async function testWorkerPostDeletePathNormalized() {
+  const env = {
+    GITHUB_OWNER: "owner",
+    GITHUB_REPO: "repo",
+    GITHUB_BRANCH: "main",
+    DOCS_BASE_DIR: "docs",
+    DOCSTORE_API_TOKEN: "api-token",
+    GITHUB_TOKEN: "fake-token"
+  };
+
+  global.fetch = async (url, init) => {
+    const u = new URL(url);
+
+    if (init.method === "GET" && u.pathname.includes("/contents/")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          type: "file",
+          path: "docs/test.md",
+          name: "test.md",
+          sha: "sha-file"
+        })
+      };
+    }
+
+    if (init.method === "DELETE" && u.pathname.includes("/contents/")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          commit: { sha: "commitsha", message: "Delete docs/test.md" }
+        })
+      };
+    }
+
+    return {
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ message: "Unexpected call in test" })
+    };
+  };
+
+  const req = new Request("https://example.com/delete", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer api-token",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ path: "/docs/test.md", message: "Delete test" })
+  });
+
+  const res = await worker.fetch(req, env);
+  assert.strictEqual(res.status, 200);
+  const json = await res.json();
+
+  // Ensure paths returned to the client are logical (no base dir prefix)
+  assert.strictEqual(json.path, "test.md");
+  assert.ok(json.commit && json.commit.sha === "commitsha");
+}
+
+async function testEchoReturnsRequestDetails() {
+  const env = {
+    DOCSTORE_API_TOKEN: "api-token"
+  };
+
+  const req = new Request("https://example.com/echo?foo=bar", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer api-token",
+      "Content-Type": "application/json",
+      "X-Test": "yes"
+    },
+    body: JSON.stringify({ hello: "world" })
+  });
+
+  const res = await worker.fetch(req, env);
+  assert.strictEqual(res.status, 200);
+  const json = await res.json();
+
+  assert.strictEqual(json.method, "POST");
+  assert.strictEqual(json.pathname, "/echo");
+  assert.strictEqual(json.query.foo, "bar");
+  assert.strictEqual(json.headers["x-test"], "yes");
+  assert.ok(json.body.includes('"hello":"world"'), "Echo body should include posted JSON");
+}
+
 async function run() {
   try {
     await testBase64UnicodeRoundTrip();
@@ -182,6 +269,12 @@ async function run() {
 
     await testWorkerPutResponsePathNormalized();
     console.log("✓ worker PUT response path normalization tests passed");
+
+    await testWorkerPostDeletePathNormalized();
+    console.log("✓ worker POST /delete path normalization tests passed");
+
+    await testEchoReturnsRequestDetails();
+    console.log("✓ echo endpoint tests passed");
 
     console.log("All tests passed");
     process.exit(0);

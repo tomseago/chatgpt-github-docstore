@@ -238,6 +238,68 @@ export default {
         return jsonResponse({ status: "ok" });
       }
 
+      // Echo endpoint for debugging request details
+      if (pathname === "/echo") {
+        let body = "";
+        try {
+          body = await request.text();
+        } catch {
+          body = "";
+        }
+        const headers = {};
+        request.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+        const query = {};
+        searchParams.forEach((value, key) => {
+          query[key] = value;
+        });
+        return jsonResponse({
+          method: request.method,
+          url: request.url,
+          pathname,
+          query,
+          headers,
+          body
+        });
+      }
+
+      // Alternate delete endpoint for environments that cannot send DELETE
+      if (pathname === "/delete" && request.method === "POST") {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return badRequest("Expected JSON body");
+        }
+        const requestPath = typeof body.path === "string" ? body.path : null;
+        if (!requestPath) {
+          return badRequest("Field 'path' (string) is required");
+        }
+        const commitMessage = typeof body.message === "string" ? body.message : undefined;
+
+        // Allow leading slash or accidental base dir prefix; normalize to logical path
+        let docPath = requestPath.startsWith("/") ? requestPath.slice(1) : requestPath;
+        docPath = logicalPathFromGitPath(env, docPath);
+
+        try {
+          const result = await deleteFile(env, docPath, commitMessage);
+          return jsonResponse({
+            path: logicalPathFromGitPath(env, buildRepoPath(env, docPath)),
+            commit: {
+              sha: result.commit.sha,
+              message: result.commit.message
+            }
+          });
+        } catch (err) {
+          console.error("POST /delete error", err);
+          if (err.status === 404) {
+            return notFound("Document not found");
+          }
+          return errorResponse(err);
+        }
+      }
+
       if (pathname === "/" && request.method === "GET") {
         const items = await listDocs(env, "");
         const mapped = items.map(item => {
