@@ -278,8 +278,14 @@ export default {
         }
         const commitMessage = typeof body.message === "string" ? body.message : undefined;
 
-        // Allow leading slash or accidental base dir prefix; normalize to logical path
-        let docPath = requestPath.startsWith("/") ? requestPath.slice(1) : requestPath;
+        // Allow leading slash, accidental /d/ prefix, or base dir prefix; normalize to logical path
+        let docPath = requestPath;
+        if (docPath.startsWith("/d/")) {
+          docPath = docPath.slice(3);
+        } else if (docPath.startsWith("d/")) {
+          docPath = docPath.slice(2);
+        }
+        docPath = docPath.startsWith("/") ? docPath.slice(1) : docPath;
         docPath = logicalPathFromGitPath(env, docPath);
 
         try {
@@ -300,7 +306,15 @@ export default {
         }
       }
 
-      if (pathname === "/" && request.method === "GET") {
+      // Document operations are now under /d/ prefix to avoid conflicts with other endpoints
+      const DOC_PREFIX = "/d/";
+      const pathWithPrefix = pathname === "/d" ? "/d/" : pathname;
+      if (!pathWithPrefix.startsWith(DOC_PREFIX)) {
+        return notFound();
+      }
+
+      // Root listing at /d/
+      if (pathWithPrefix === "/d/" && request.method === "GET") {
         const items = await listDocs(env, "");
         const mapped = items.map(item => {
           const logicalPath = logicalPathFromGitPath(env, item.path);
@@ -317,123 +331,118 @@ export default {
         return jsonResponse({ items: mapped });
       }
 
-      // All other paths are treated as document or directory paths
-      if (pathname !== "/health") {
-        // Directory listing when path ends with a trailing slash (e.g., "/ftl/")
-        if (request.method === "GET" && pathname.endsWith("/")) {
-          const dirPath = pathname === "/" ? "" : pathname.slice(1, -1); // strip leading and trailing "/"
-          try {
-            const items = await listDocs(env, dirPath);
-            const mapped = items.map(item => {
-              const logicalPath = logicalPathFromGitPath(env, item.path);
-              const path =
-                item.type === "dir"
-                  ? (logicalPath === "" ? "" : logicalPath + "/")
-                  : logicalPath;
-              return {
-                name: item.name,
-                path,
-                type: item.type,
-              };
-            });
-            return jsonResponse({ items: mapped });
-          } catch (err) {
-            if (err.status === 404) {
-              return notFound("Directory not found");
-            }
-            console.error("GET directory error", err);
-            return jsonResponse({ error: err.message || "Internal error" }, 500);
+      // Directory listing when path ends with a trailing slash (e.g., "/d/ftl/")
+      if (request.method === "GET" && pathWithPrefix.endsWith("/")) {
+        const dirPath = pathWithPrefix.slice(DOC_PREFIX.length, -1); // strip "/d/" and trailing "/"
+        try {
+          const items = await listDocs(env, dirPath);
+          const mapped = items.map(item => {
+            const logicalPath = logicalPathFromGitPath(env, item.path);
+            const path =
+              item.type === "dir"
+                ? (logicalPath === "" ? "" : logicalPath + "/")
+                : logicalPath;
+            return {
+              name: item.name,
+              path,
+              type: item.type,
+            };
+          });
+          return jsonResponse({ items: mapped });
+        } catch (err) {
+          if (err.status === 404) {
+            return notFound("Directory not found");
           }
+          console.error("GET directory error", err);
+          return jsonResponse({ error: err.message || "Internal error" }, 500);
         }
-
-        // File operations when there is no trailing slash
-        const docPath = pathname.startsWith("/") ? pathname.substring(1) : pathname;
-
-        if (request.method === "GET") {
-          try {
-            const file = await getFile(env, docPath);
-            if (file.type !== "file") {
-              return badRequest("Requested path is not a file");
-            }
-            const content = fromBase64(file.content);
-            return jsonResponse({
-              path: logicalPathFromGitPath(env, file.path),
-              name: file.name,
-              sha: file.sha,
-              content
-            });
-          } catch (err) {
-            if (err.status === 404) {
-              return notFound("Document not found");
-            }
-            console.error("GET document error", err);
-            return errorResponse(err);
-          }
-        }
-
-        if (request.method === "PUT") {
-          let body;
-          try {
-            body = await request.json();
-          } catch {
-            return badRequest("Expected JSON body");
-          }
-          if (typeof body.content !== "string") {
-            return badRequest("Field 'content' (string) is required");
-          }
-          const commitMessage = typeof body.message === "string" ? body.message : undefined;
-
-          try {
-            const result = await putFile(env, docPath, body.content, commitMessage);
-            return jsonResponse({
-              path: logicalPathFromGitPath(env, result.content.path),
-              name: result.content.name,
-              sha: result.content.sha,
-              commit: {
-                sha: result.commit.sha,
-                message: result.commit.message
-              }
-            }, 200);
-          } catch (err) {
-            console.error("PUT document error", err);
-            if (err.status === 404) {
-              return notFound("Repository or branch not found");
-            }
-            return errorResponse(err);
-          }
-        }
-
-        if (request.method === "DELETE") {
-          let body;
-          try {
-            body = await request.json();
-          } catch {
-            body = {};
-          }
-          const commitMessage = typeof body.message === "string" ? body.message : undefined;
-
-          try {
-            const result = await deleteFile(env, docPath, commitMessage);
-            return jsonResponse({
-              path: docPath,
-              commit: {
-                sha: result.commit.sha,
-                message: result.commit.message
-              }
-            });
-          } catch (err) {
-            console.error("DELETE document error", err);
-            if (err.status === 404) {
-              return notFound("Document not found");
-            }
-            return errorResponse(err);
-          }
-        }
-
-        return jsonResponse({ error: "Method not allowed" }, 405);
       }
 
-      return notFound();
+      // File operations when there is no trailing slash
+      const docPath = pathWithPrefix.startsWith(DOC_PREFIX) ? pathWithPrefix.substring(DOC_PREFIX.length) : pathWithPrefix;
+
+      if (request.method === "GET") {
+        try {
+          const file = await getFile(env, docPath);
+          if (file.type !== "file") {
+            return badRequest("Requested path is not a file");
+          }
+          const content = fromBase64(file.content);
+          return jsonResponse({
+            path: logicalPathFromGitPath(env, file.path),
+            name: file.name,
+            sha: file.sha,
+            content
+          });
+        } catch (err) {
+          if (err.status === 404) {
+            return notFound("Document not found");
+          }
+          console.error("GET document error", err);
+          return errorResponse(err);
+        }
+      }
+
+      if (request.method === "PUT") {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return badRequest("Expected JSON body");
+        }
+        if (typeof body.content !== "string") {
+          return badRequest("Field 'content' (string) is required");
+        }
+        const commitMessage = typeof body.message === "string" ? body.message : undefined;
+
+        try {
+          const result = await putFile(env, docPath, body.content, commitMessage);
+          return jsonResponse({
+            path: logicalPathFromGitPath(env, result.content.path),
+            name: result.content.name,
+            sha: result.content.sha,
+            commit: {
+              sha: result.commit.sha,
+              message: result.commit.message
+            }
+          }, 200);
+        } catch (err) {
+          console.error("PUT document error", err);
+          if (err.status === 404) {
+            return notFound("Repository or branch not found");
+          }
+          return errorResponse(err);
+        }
+      }
+
+      if (request.method === "DELETE") {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          body = {};
+        }
+        const commitMessage = typeof body.message === "string" ? body.message : undefined;
+
+        try {
+          const result = await deleteFile(env, docPath, commitMessage);
+          return jsonResponse({
+            path: logicalPathFromGitPath(env, buildRepoPath(env, docPath)),
+            commit: {
+              sha: result.commit.sha,
+              message: result.commit.message
+            }
+          });
+        } catch (err) {
+          console.error("DELETE document error", err);
+          if (err.status === 404) {
+            return notFound("Document not found");
+          }
+          return errorResponse(err);
+        }
+      }
+
+      return jsonResponse({ error: "Method not allowed" }, 405);
     } catch (err) {
       console.error("Top-level error", err);
       return errorResponse(err);

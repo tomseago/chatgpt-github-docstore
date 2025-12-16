@@ -28,9 +28,10 @@ fi
 timestamp="$(date -u +"%Y%m%d%H%M%S")"
 doc_dir="tmp-${timestamp}"
 doc_file="delete-test-${timestamp}.md"
-doc_path="/${doc_dir}/${doc_file}"
+doc_logical_path="${doc_dir}/${doc_file}"
+doc_api_path="/d/${doc_logical_path}"
 
-echo "Using temporary document path: ${doc_path}"
+echo "Using temporary document path: ${doc_api_path}"
 
 call_docstore() {
   local method="$1"
@@ -60,18 +61,18 @@ call_docstore() {
 
 echo "Creating document..."
 initial_content="Initial delete test created at $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-create_body="$(printf '{"content":"%s","message":"Create %s"}' "$initial_content" "$doc_path")"
-call_docstore "PUT" "$doc_path" "$create_body" > /dev/null
+create_body="$(printf '{"content":"%s","message":"Create %s"}' "$initial_content" "$doc_logical_path")"
+call_docstore "PUT" "$doc_api_path" "$create_body" > /dev/null
 echo "Document created."
 
 echo "Updating document..."
 updated_content="Updated delete test at $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-update_body="$(printf '{"content":"%s","message":"Update %s"}' "$updated_content" "$doc_path")"
-call_docstore "PUT" "$doc_path" "$update_body" > /dev/null
+update_body="$(printf '{"content":"%s","message":"Update %s"}' "$updated_content" "$doc_logical_path")"
+call_docstore "PUT" "$doc_api_path" "$update_body" > /dev/null
 echo "Document updated."
 
 echo "Reading document for verification..."
-read_body="$(call_docstore "GET" "$doc_path")"
+read_body="$(call_docstore "GET" "$doc_api_path")"
 
 if [[ "$node_available" == true ]]; then
   read_content="$(
@@ -90,8 +91,8 @@ else
 fi
 
 echo "Deleting document..."
-delete_body="$(printf '{"message":"Delete %s"}' "$doc_path")"
-call_docstore "DELETE" "$doc_path" "$delete_body" > /dev/null
+delete_body="$(printf '{"message":"Delete %s"}' "$doc_logical_path")"
+call_docstore "DELETE" "$doc_api_path" "$delete_body" > /dev/null
 echo "Document deleted."
 
 echo "Delete workflow completed successfully."

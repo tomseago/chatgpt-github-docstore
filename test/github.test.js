@@ -147,7 +147,7 @@ async function testWorkerPutResponsePathNormalized() {
   };
 
   const body = { content: "Hello world", message: "Create test.md" };
-  const req = new Request("https://example.com/test.md", {
+  const req = new Request("https://example.com/d/test.md", {
     method: "PUT",
     headers: {
       "Authorization": "Bearer api-token",

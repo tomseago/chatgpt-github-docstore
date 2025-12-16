@@ -5,22 +5,6 @@ info:
 servers:
   - url: https://YOUR-WORKER-URL-HERE
 paths:
-  /:
-    get:
-      operationId: listDocs
-      summary: List documents at the root of the docstore
-      responses:
-        "200":
-          description: List of items at the docstore root
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/DocListItem'
   /health:
     get:
       operationId: healthCheck
@@ -36,89 +20,6 @@ paths:
                   status:
                     type: string
                     description: Health status string, e.g. "ok"
-  /{path}/:
-    get:
-      operationId: listDocsInDirectory
-      summary: List documents within a directory by path
-      parameters:
-        - name: path
-          in: path
-          required: true
-          description: Directory path relative to the docstore root (e.g. "ftl" for "/ftl/")
-          schema:
-            type: string
-      responses:
-        "200":
-          description: List of items in the directory
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/DocListItem'
-        "404":
-          description: Directory not found
-  /{path}:
-    get:
-      operationId: getDoc
-      summary: Get a single document by path
-      parameters:
-        - name: path
-          in: path
-          required: true
-          description: Document path relative to the docstore root (e.g. "ftl/canon.md")
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Document contents
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Doc'
-        "404":
-          description: Document not found
-  /delete:
-    post:
-      operationId: deleteDocViaPost
-      summary: Delete a document via POST (fallback for clients that cannot send DELETE)
-      x-openai-isConsequential: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [path]
-              properties:
-                path:
-                  type: string
-                  description: Document path relative to the docstore root (e.g. "ftl/canon.md")
-                message:
-                  type: string
-                  description: Optional commit message
-      responses:
-        "200":
-          description: Document deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  path:
-                    type: string
-                  commit:
-                    type: object
-                    properties:
-                      sha:
-                        type: string
-                      message:
-                        type: string
-        "404":
-          description: Document not found
   /echo:
     post:
       operationId: echoRequest
@@ -158,6 +59,105 @@ paths:
                       type: string
                   body:
                     type: string
+  /delete:
+    post:
+      operationId: deleteDocViaPost
+      summary: Delete a document via POST (fallback for clients that cannot send DELETE)
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Document path relative to the docstore root (e.g. "ftl/canon.md")
+                message:
+                  type: string
+                  description: Optional commit message
+      responses:
+        "200":
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  commit:
+                    type: object
+                    properties:
+                      sha:
+                        type: string
+                      message:
+                        type: string
+        "404":
+          description: Document not found
+  /d/:
+    get:
+      operationId: listDocs
+      summary: List documents at the root of the docstore
+      responses:
+        "200":
+          description: List of items at the docstore root
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocListItem'
+  /d/{path}/:
+    get:
+      operationId: listDocsInDirectory
+      summary: List documents within a directory by path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Directory path relative to the docstore root (e.g. "ftl" for "/ftl/")
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of items in the directory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocListItem'
+        "404":
+          description: Directory not found
+  /d/{path}:
+    get:
+      operationId: getDoc
+      summary: Get a single document by path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Document path relative to the docstore root (e.g. "ftl/canon.md")
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document contents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Doc'
+        "404":
+          description: Document not found
     put:
       operationId: upsertDoc
       summary: Create or update a document by path

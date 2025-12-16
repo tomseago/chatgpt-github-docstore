@@ -20,7 +20,7 @@ if [[ -z "${DOCSTORE_API_TOKEN:-}" ]]; then
 fi
 
 METHOD="${1:-GET}"
-FPATH="${2:-/}"
+FPATH="${2:-/d/}"
 DATA="${3:-}"
 
 if [[ "$METHOD" == "GET" || "$METHOD" == "DELETE" ]]; then
