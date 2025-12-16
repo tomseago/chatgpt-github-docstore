@@ -81,6 +81,81 @@ paths:
                 $ref: '#/components/schemas/Doc'
         "404":
           description: Document not found
+  /delete:
+    post:
+      operationId: deleteDocViaPost
+      summary: Delete a document via POST (fallback for clients that cannot send DELETE)
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Document path relative to the docstore root (e.g. "ftl/canon.md")
+                message:
+                  type: string
+                  description: Optional commit message
+      responses:
+        "200":
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  commit:
+                    type: object
+                    properties:
+                      sha:
+                        type: string
+                      message:
+                        type: string
+        "404":
+          description: Document not found
+  /echo:
+    post:
+      operationId: echoRequest
+      summary: Echo back request details for debugging connector calls
+      description: |
+        Returns the method, URL, headers, query parameters, and raw body that were received.
+        Auth is still required; do not expose secrets in requests made to this endpoint.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Request details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  method:
+                    type: string
+                  url:
+                    type: string
+                  pathname:
+                    type: string
+                  query:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  headers:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  body:
+                    type: string
     put:
       operationId: upsertDoc
       summary: Create or update a document by path
