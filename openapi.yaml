@@ -132,6 +132,8 @@ paths:
           application/json:
             schema:
               type: object
+              properties: {}
+              additionalProperties: true
       responses:
         "200":
           description: Request details
