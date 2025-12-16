@@ -21,9 +21,24 @@ paths:
                     type: string
                     description: Health status string, e.g. "ok"
   /echo:
+    get:
+      operationId: echoRequestGet
+      summary: Echo back request details for debugging connector calls (GET)
+      x-openai-isConsequential: false
+      description: |
+        Returns the method, URL, headers, query parameters, and raw body that were received.
+        Auth is still required; do not expose secrets in requests made to this endpoint.
+      responses:
+        "200":
+          description: Request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EchoResponse'
     post:
-      operationId: echoRequest
-      summary: Echo back request details for debugging connector calls
+      operationId: echoRequestPost
+      summary: Echo back request details for debugging connector calls (POST)
+      x-openai-isConsequential: false
       description: |
         Returns the method, URL, headers, query parameters, and raw body that were received.
         Auth is still required; do not expose secrets in requests made to this endpoint.
@@ -41,24 +56,51 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  method:
-                    type: string
-                  url:
-                    type: string
-                  pathname:
-                    type: string
-                  query:
-                    type: object
-                    additionalProperties:
-                      type: string
-                  headers:
-                    type: object
-                    additionalProperties:
-                      type: string
-                  body:
-                    type: string
+                $ref: '#/components/schemas/EchoResponse'
+    put:
+      operationId: echoRequestPut
+      summary: Echo back request details for debugging connector calls (PUT)
+      x-openai-isConsequential: false
+      description: |
+        Returns the method, URL, headers, query parameters, and raw body that were received.
+        Auth is still required; do not expose secrets in requests made to this endpoint.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: true
+      responses:
+        "200":
+          description: Request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EchoResponse'
+    delete:
+      operationId: echoRequestDelete
+      summary: Echo back request details for debugging connector calls (DELETE)
+      x-openai-isConsequential: false
+      description: |
+        Returns the method, URL, headers, query parameters, and raw body that were received.
+        Auth is still required; do not expose secrets in requests made to this endpoint.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: true
+      responses:
+        "200":
+          description: Request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EchoResponse'
   /delete:
     post:
       operationId: deleteDocViaPost
@@ -247,6 +289,25 @@ components:
         content:
           type: string
           description: Raw document text (e.g. Markdown)
+    EchoResponse:
+      type: object
+      properties:
+        method:
+          type: string
+        url:
+          type: string
+        pathname:
+          type: string
+        query:
+          type: object
+          additionalProperties:
+            type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        body:
+          type: string
     UpsertDocRequest:
       type: object
       required: [content]

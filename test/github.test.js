@@ -253,6 +253,29 @@ async function testEchoReturnsRequestDetails() {
   assert.ok(json.body.includes('"hello":"world"'), "Echo body should include posted JSON");
 }
 
+async function testEchoHandlesDelete() {
+  const env = {
+    DOCSTORE_API_TOKEN: "api-token"
+  };
+
+  const req = new Request("https://example.com/echo?method=delete", {
+    method: "DELETE",
+    headers: {
+      "Authorization": "Bearer api-token",
+      "X-Test": "delete"
+    }
+  });
+
+  const res = await worker.fetch(req, env);
+  assert.strictEqual(res.status, 200);
+  const json = await res.json();
+
+  assert.strictEqual(json.method, "DELETE");
+  assert.strictEqual(json.pathname, "/echo");
+  assert.strictEqual(json.query.method, "delete");
+  assert.strictEqual(json.headers["x-test"], "delete");
+}
+
 async function run() {
   try {
     await testBase64UnicodeRoundTrip();
@@ -275,6 +298,9 @@ async function run() {
 
     await testEchoReturnsRequestDetails();
     console.log("✓ echo endpoint tests passed");
+
+    await testEchoHandlesDelete();
+    console.log("✓ echo DELETE method tests passed");
 
     console.log("All tests passed");
     process.exit(0);
